@@ -344,6 +344,7 @@ class Game {
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
+        ground.userData = { isEnvironment: true };
         this.scene.add(ground);
 
         // Add walls
@@ -363,6 +364,7 @@ class Game {
         northWall.position.set(0, wallHeight/2, -30);
         northWall.castShadow = true;
         northWall.receiveShadow = true;
+        northWall.userData = { isEnvironment: true };
         this.scene.add(northWall);
 
         // South wall
@@ -373,6 +375,7 @@ class Game {
         southWall.position.set(0, wallHeight/2, 30);
         southWall.castShadow = true;
         southWall.receiveShadow = true;
+        southWall.userData = { isEnvironment: true };
         this.scene.add(southWall);
 
         // East wall
@@ -383,6 +386,7 @@ class Game {
         eastWall.position.set(30, wallHeight/2, 0);
         eastWall.castShadow = true;
         eastWall.receiveShadow = true;
+        eastWall.userData = { isEnvironment: true };
         this.scene.add(eastWall);
 
         // West wall
@@ -393,6 +397,7 @@ class Game {
         westWall.position.set(-30, wallHeight/2, 0);
         westWall.castShadow = true;
         westWall.receiveShadow = true;
+        westWall.userData = { isEnvironment: true };
         this.scene.add(westWall);
 
         // Add grass patches within walls
@@ -413,6 +418,7 @@ class Game {
             );
             grass.rotation.x = -Math.PI / 2;
             grass.scale.set(0.5 + Math.random() * 0.5, 1, 0.5 + Math.random() * 0.5);
+            grass.userData = { isEnvironment: true };
             this.scene.add(grass);
         }
 
@@ -424,6 +430,7 @@ class Game {
                 0,
                 Math.random() * 50 - 25
             );
+            tree.userData = { isEnvironment: true };
             this.scene.add(tree);
         }
     }
@@ -679,22 +686,46 @@ class Game {
     createBossSquirrel() {
         const boss = this.createSquirrel(); // Start with base squirrel
         
-        // Make the boss bigger
-        boss.scale.set(3, 3, 3);
+        // Make the boss even bigger
+        boss.scale.set(5, 5, 5); // Increased from 3 to 5
         
-        // Give boss a distinct color
+        // Give boss a distinct color and glow
         boss.children.forEach(child => {
             if (child.material) {
                 if (child.material.color) {
                     child.material = child.material.clone();
                     child.material.color.setHex(0x8B0000); // Dark red
+                    child.material.emissive = new THREE.Color(0x400000); // Red glow
+                    child.material.emissiveIntensity = 0.5;
                 }
             }
         });
 
-        // Set boss position
-        boss.position.set(0, 0.7, -25); // Start at the far end
+        // Add crown to identify as boss
+        const crownGeometry = new THREE.ConeGeometry(0.15, 0.3, 5);
+        const crownMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xFFD700, // Gold
+            metalness: 0.8,
+            roughness: 0.2,
+            emissive: 0xFFD700,
+            emissiveIntensity: 0.5
+        });
         
+        // Create multiple spikes for the crown
+        for (let i = 0; i < 5; i++) {
+            const spike = new THREE.Mesh(crownGeometry, crownMaterial);
+            const angle = (Math.PI * 2 * i) / 5;
+            spike.position.set(
+                Math.cos(angle) * 0.2,
+                0.75, // Position above head
+                Math.sin(angle) * 0.2 + 0.45 // Offset to center on head
+            );
+            boss.add(spike);
+        }
+
+        // Set boss position - fix floating by setting Y to proper ground level
+        boss.position.set(0, 0.225 * 5, -25); // Scale Y position by boss scale (5) to match ground
+
         // Add boss properties
         const levelData = this.levelData[this.level];
         boss.userData = {
@@ -704,8 +735,29 @@ class Game {
             direction: new THREE.Vector3(),
             speed: levelData.bossSpeed,
             lastAttackTime: 0,
+            lastRangedAttackTime: 0,
+            lastLeapAttackTime: 0,
+            lastAreaAttackTime: 0,
             lastDirectionChange: performance.now(),
-            directionChangeInterval: 2000
+            directionChangeInterval: 3000,
+            currentState: 'chase', // chase, ranged, leap, area
+            stateChangeTime: performance.now(),
+            attackCooldowns: {
+                melee: 3000, // Basic attack
+                ranged: 5000, // Throwing attack
+                leap: 12000, // Jumps at player
+                area: 15000 // Area effect attack
+            },
+            stateDuration: {
+                ranged: 5000,
+                leap: 3000,
+                area: 4000
+            },
+            inLeapAttack: false,
+            leapTarget: new THREE.Vector3(),
+            leapHeight: 0,
+            leapProgress: 0,
+            leapStartPosition: new THREE.Vector3()
         };
 
         boss.castShadow = true;
@@ -1310,27 +1362,62 @@ class Game {
         for (let i = this.nuts.length - 1; i >= 0; i--) {
             const nut = this.nuts[i];
             const previousPosition = nut.position.clone();
-            nut.position.add(nut.velocity);
-            nut.velocity.y -= 0.1;
+            
+            // Update position - apply custom logic for enemy projectiles
+            if (nut.userData.isEnemyProjectile) {
+                nut.position.add(nut.userData.velocity);
+                nut.rotation.x += 0.1;
+                nut.rotation.y += 0.1;
+                
+                // Update lifetime and remove old projectiles
+                nut.userData.lifetime += 0.016; // Approximately one frame at 60fps
+                if (nut.userData.lifetime > 5) { // Remove after 5 seconds
+                    this.scene.remove(nut);
+                    this.nuts.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collision with player
+                const distanceToPlayer = nut.position.distanceTo(this.camera.position);
+                if (distanceToPlayer < 1.5) {
+                    // Player hit by projectile
+                    if (!this.isShielded) {
+                        this.takeDamage(nut.userData.damage);
+                        this.soundManager.playSound('hit');
+                        
+                        // Apply slight screen shake
+                        this.applyScreenShake(0.2, 200);
+                    }
+                    
+                    // Remove projectile
+                    this.scene.remove(nut);
+                    this.nuts.splice(i, 1);
+                    continue;
+                }
+            } else {
+                // Normal player projectile update logic
+                nut.position.add(nut.velocity);
+                nut.velocity.y -= 0.1;
 
-            // Update trail
-            nut.trailPoints.push(nut.position.clone());
-            if (nut.trailPoints.length > 20) {
-                nut.trailPoints.shift();
+                // Update trail
+                nut.trailPoints.push(nut.position.clone());
+                if (nut.trailPoints.length > 20) {
+                    nut.trailPoints.shift();
+                }
+                const positions = new Float32Array(nut.trailPoints.length * 3);
+                nut.trailPoints.forEach((point, index) => {
+                    positions[index * 3] = point.x;
+                    positions[index * 3 + 1] = point.y;
+                    positions[index * 3 + 2] = point.z;
+                });
+                nut.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             }
-            const positions = new Float32Array(nut.trailPoints.length * 3);
-            nut.trailPoints.forEach((point, index) => {
-                positions[index * 3] = point.x;
-                positions[index * 3 + 1] = point.y;
-                positions[index * 3 + 2] = point.z;
-            });
-            nut.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
             // Check for collisions
             let hitSomething = false;
 
             // Check boss collision first
-            if (this.boss) {
+            if (this.boss && !nut.userData.isEnemyProjectile) { // Only player projectiles can damage boss
                 const bossBox = new THREE.Box3().setFromObject(this.boss);
                 bossBox.expandByScalar(0.6); // Larger collision box for boss
 
@@ -1354,7 +1441,7 @@ class Game {
             }
 
             // Check regular squirrel collisions
-            if (!hitSomething) {
+            if (!hitSomething && !nut.userData.isEnemyProjectile) { // Only player projectiles damage squirrels
                 for (let j = this.squirrels.length - 1; j >= 0; j--) {
                     const squirrel = this.squirrels[j];
                     const squirrelBox = new THREE.Box3().setFromObject(squirrel);
@@ -1405,6 +1492,7 @@ class Game {
         });
         const explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
         explosion.position.copy(position);
+        explosion.userData = { isEffect: true }; // Mark as visual effect
         this.scene.add(explosion);
         
         // Damage squirrels in radius
@@ -1416,8 +1504,8 @@ class Game {
             }
         }
         
-        // Also damage boss if in radius
-        if (this.boss) {
+        // Also damage boss if in radius (but only from player explosions)
+        if (this.boss && !explosion.userData.fromBoss) {
             const distance = position.distanceTo(this.boss.position);
             if (distance < radius) {
                 // Apply half damage to boss from explosion area effect
@@ -1441,6 +1529,8 @@ class Game {
                 this.scene.remove(explosion);
             }
         }, 50);
+        
+        return explosion;
     }
 
     killSquirrel(squirrel, index) {
@@ -1521,50 +1611,72 @@ class Game {
             const bossData = this.boss.userData;
             const distanceToPlayer = this.boss.position.distanceTo(this.camera.position);
             
-            // Boss movement
-            if (time - bossData.lastDirectionChange > bossData.directionChangeInterval) {
-                const randomOffset = new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.5,
-                    0,
-                    (Math.random() - 0.5) * 0.5
-                );
-                bossData.direction.copy(this.camera.position)
-                    .sub(this.boss.position)
-                    .normalize()
-                    .add(randomOffset)
-                    .normalize();
+            // Boss state machine
+            if (bossData.inLeapAttack) {
+                // Special case for leap attack animation
+                this.updateBossLeapAttack();
+            } else {
+                // Check if we need to change state
+                const stateElapsed = time - bossData.stateChangeTime;
                 
-                bossData.lastDirectionChange = time;
-            }
-
-            // Boss attack
-            if (distanceToPlayer < 5) {
-                const levelData = this.levelData[this.level];
-                if (time - bossData.lastAttackTime > levelData.bossAttackSpeed * 1000) {
-                    this.takeDamage(levelData.bossAttackDamage);
-                    bossData.lastAttackTime = time;
-                    this.soundManager.playSound('hit');
+                if (bossData.currentState !== 'chase' && 
+                    stateElapsed > bossData.stateDuration[bossData.currentState]) {
+                    // Return to chase state after attack states
+                    bossData.currentState = 'chase';
+                    bossData.stateChangeTime = time;
+                } else if (bossData.currentState === 'chase') {
+                    // Decide if we should enter an attack state
+                    if (distanceToPlayer < 20) {
+                        // Perform ranged attack if ready
+                        if (time - bossData.lastRangedAttackTime > bossData.attackCooldowns.ranged) {
+                            bossData.currentState = 'ranged';
+                            bossData.stateChangeTime = time;
+                            bossData.lastRangedAttackTime = time;
+                            
+                            // Prepare ranged attack
+                            this.bossPrepareRangedAttack();
+                        }
+                        // Perform leap attack if ready
+                        else if (distanceToPlayer > 8 && 
+                                 time - bossData.lastLeapAttackTime > bossData.attackCooldowns.leap) {
+                            bossData.currentState = 'leap';
+                            bossData.stateChangeTime = time;
+                            bossData.lastLeapAttackTime = time;
+                            
+                            // Start leap attack
+                            this.bossStartLeapAttack();
+                        }
+                        // Perform area attack if ready and close enough
+                        else if (distanceToPlayer < 10 && 
+                                 time - bossData.lastAreaAttackTime > bossData.attackCooldowns.area) {
+                            bossData.currentState = 'area';
+                            bossData.stateChangeTime = time;
+                            bossData.lastAreaAttackTime = time;
+                            
+                            // Perform area attack
+                            this.bossAreaAttack();
+                        }
+                        // Perform melee attack if ready and close enough
+                        else if (distanceToPlayer < 5 && 
+                                 time - bossData.lastAttackTime > bossData.attackCooldowns.melee) {
+                            this.bossMeleeAttack();
+                            bossData.lastAttackTime = time;
+                        }
+                    }
                 }
-            }
 
-            // Move boss
-            const newX = this.boss.position.x + bossData.direction.x * bossData.speed;
-            const newZ = this.boss.position.z + bossData.direction.z * bossData.speed;
-            
-            // Keep boss within walls
-            const bossRadius = 3;
-            const mapBounds = 25;
-            this.boss.position.x = Math.max(-mapBounds, Math.min(mapBounds, newX));
-            this.boss.position.z = Math.max(-mapBounds, Math.min(mapBounds, newZ));
-            
-            // Rotate boss to face movement direction
-            this.boss.rotation.y = Math.atan2(bossData.direction.x, bossData.direction.z);
-
-            // Spawn minions
-            if (time - this.lastMinionSpawnTime > this.levelData[this.level].minionSpawnInterval * 1000) {
-                if (this.squirrels.length < this.levelData[this.level].minionCount) {
-                    this.spawnMinion();
-                    this.lastMinionSpawnTime = time;
+                // Update boss based on current state
+                switch (bossData.currentState) {
+                    case 'chase':
+                        this.updateBossChase();
+                        break;
+                    case 'ranged':
+                        this.updateBossRangedAttack();
+                        break;
+                    case 'area':
+                        // Animation handled in bossAreaAttack
+                        break;
+                    // 'leap' state is handled by updateBossLeapAttack
                 }
             }
 
@@ -1900,11 +2012,635 @@ class Game {
             this.squirrels.forEach(squirrel => this.scene.remove(squirrel));
             this.squirrels = [];
             
+            // Ensure boss is removed when moving to next level
+            if (this.boss) {
+                this.scene.remove(this.boss);
+                this.boss = null;
+            }
+            
+            // Extra cleanup for level transition from boss to level 4
+            if (this.level === 4) {
+                // Force a deep cleanup of the scene before creating new environment
+                this.forceDeepCleanup();
+            }
+            
+            // Clear existing environment elements
+            this.clearEnvironment();
+            
+            // Create new environment based on level
+            if (this.level === 3) {
+                // Create boss arena for level 3
+                this.createBossArena();
+                
+                // Show level transition message
+                this.showLevelTransitionMessage("Boss Level: The Lair of the Squirrel King");
+            } else {
+                // Create standard environment for other levels
+                this.createGround();
+                
+                // Reset lighting and fog if coming from boss level
+                if (this.level === 4) {
+                    this.resetStandardLighting();
+                    this.scene.fog = null; // Remove fog
+                    
+                    // Show level transition message
+                    this.showLevelTransitionMessage("You've defeated the Squirrel King! Return to the forest...");
+                } else if (this.level === 2) {
+                    this.showLevelTransitionMessage("Level 2: More squirrels await...");
+                } else if (this.level === 5) {
+                    this.showLevelTransitionMessage("Final Level: The Ultimate Challenge");
+                }
+            }
+            
             // Create new squirrels for the level
             this.createSquirrels();
             
             this.updateUI();
         }
+    }
+
+    showLevelTransitionMessage(message) {
+        // Create or get message container
+        let msgContainer = document.getElementById('level-transition-message');
+        if (!msgContainer) {
+            msgContainer = document.createElement('div');
+            msgContainer.id = 'level-transition-message';
+            msgContainer.style.position = 'absolute';
+            msgContainer.style.top = '30%';
+            msgContainer.style.left = '50%';
+            msgContainer.style.transform = 'translate(-50%, -50%)';
+            msgContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+            msgContainer.style.color = 'white';
+            msgContainer.style.padding = '20px 40px';
+            msgContainer.style.borderRadius = '10px';
+            msgContainer.style.fontFamily = 'Arial, sans-serif';
+            msgContainer.style.fontSize = '24px';
+            msgContainer.style.fontWeight = 'bold';
+            msgContainer.style.textAlign = 'center';
+            msgContainer.style.zIndex = '1000';
+            msgContainer.style.opacity = '0';
+            msgContainer.style.transition = 'opacity 1s ease-in-out';
+            document.getElementById('game-ui').appendChild(msgContainer);
+        }
+        
+        // Set message and animate
+        msgContainer.textContent = message;
+        msgContainer.style.opacity = '1';
+        
+        // Fade out after 3 seconds
+        setTimeout(() => {
+            msgContainer.style.opacity = '0';
+        }, 3000);
+    }
+
+    resetStandardLighting() {
+        // Remove existing lights from boss level
+        this.scene.children.forEach(child => {
+            if (child instanceof THREE.AmbientLight || child instanceof THREE.DirectionalLight) {
+                this.scene.remove(child);
+            }
+        });
+        
+        // Add ambient light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        this.scene.add(ambientLight);
+
+        // Add directional light (sun)
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 50;
+        directionalLight.shadow.camera.left = -50;
+        directionalLight.shadow.camera.right = 50;
+        directionalLight.shadow.camera.top = 50;
+        directionalLight.shadow.camera.bottom = -50;
+        this.scene.add(directionalLight);
+        
+        // Reset sky to blue
+        this.updateSkyForStandardLevel();
+    }
+
+    updateSkyForStandardLevel() {
+        // Find existing sky
+        let sky = null;
+        this.scene.children.forEach(child => {
+            if (child.userData && child.userData.isSky) {
+                sky = child;
+            }
+        });
+        
+        if (sky) {
+            this.scene.remove(sky);
+        }
+        
+        // Create blue sky
+        const skyGeometry = new THREE.SphereGeometry(100, 32, 32);
+        const skyMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                topColor: { value: new THREE.Color(0x0077ff) }, // Blue
+                bottomColor: { value: new THREE.Color(0xffffff) }, // White
+                offset: { value: 33 },
+                exponent: { value: 0.6 }
+            },
+            vertexShader: `
+                varying vec3 vWorldPosition;
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 topColor;
+                uniform vec3 bottomColor;
+                uniform float offset;
+                uniform float exponent;
+                varying vec3 vWorldPosition;
+                void main() {
+                    float h = normalize(vWorldPosition).y;
+                    gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                }
+            `,
+            side: THREE.BackSide
+        });
+        const newSky = new THREE.Mesh(skyGeometry, skyMaterial);
+        newSky.userData = { isEnvironment: true, isSky: true };
+        this.scene.add(newSky);
+    }
+
+    clearEnvironment() {
+        // Remove all environment elements like ground, walls, trees, etc.
+        for (let i = this.scene.children.length - 1; i >= 0; i--) {
+            const child = this.scene.children[i];
+            
+            // Check if the object is part of the environment
+            if (child.userData && (child.userData.isEnvironment || child.userData.isEffect || child.userData.isLeapTarget || child.userData.fromBoss)) {
+                this.scene.remove(child);
+            }
+            
+            // Also remove any meshes that are likely to be attack effects by checking their material properties
+            if (child.type === 'Mesh') {
+                // Check for red materials (likely to be attack effects)
+                if (child.material) {
+                    if (child.material.color) {
+                        // Check if the material is reddish
+                        const color = child.material.color;
+                        if ((color.r > 0.7 && color.g < 0.5 && color.b < 0.5) || // Red
+                            (color.r > 0.9 && color.g < 0.6)) { // Orange-red (explosions)
+                            this.scene.remove(child);
+                        }
+                    }
+                    // Check for emissive materials (likely to be effects)
+                    if (child.material.emissive && 
+                       (child.material.emissiveIntensity > 0.2 || child.material.transparent)) {
+                        this.scene.remove(child);
+                    }
+                }
+            }
+            
+            // Remove any plane geometry that might be at ground level
+            if (child.geometry && 
+                (child.geometry.type === 'CircleGeometry' || 
+                 child.geometry.type === 'RingGeometry' ||
+                 child.geometry.type === 'PlaneGeometry') &&
+                Math.abs(child.position.y) < 0.2) {
+                this.scene.remove(child);
+            }
+        }
+        
+        // Clear any animated objects
+        if (this.animatedObjects) {
+            this.animatedObjects = [];
+        }
+    }
+
+    createBossArena() {
+        // Create lava ground
+        const groundGeometry = new THREE.PlaneGeometry(60, 60);
+        const lavaMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x8B0000, // Dark red base color
+            emissive: 0xff3300, // Lava glow
+            emissiveIntensity: 0.5,
+            roughness: 0.7,
+            metalness: 0.3
+        });
+        const ground = new THREE.Mesh(groundGeometry, lavaMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        ground.userData = { isEnvironment: true };
+        this.scene.add(ground);
+
+        // Create lava cracks (glowing lines)
+        for (let i = 0; i < 20; i++) {
+            // Create a random lava crack
+            const crackWidth = 0.1 + Math.random() * 0.3;
+            const crackLength = 5 + Math.random() * 15;
+            const crackGeometry = new THREE.PlaneGeometry(crackWidth, crackLength);
+            const crackMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff5500,
+                emissive: 0xffcc00,
+                emissiveIntensity: 1.0,
+                side: THREE.DoubleSide
+            });
+            
+            const crack = new THREE.Mesh(crackGeometry, crackMaterial);
+            crack.rotation.x = -Math.PI / 2;
+            crack.rotation.z = Math.random() * Math.PI;
+            crack.position.set(
+                Math.random() * 50 - 25,
+                0.05, // Slightly above ground
+                Math.random() * 50 - 25
+            );
+            crack.userData = { isEnvironment: true };
+            this.scene.add(crack);
+            
+            // Add pulsing animation to crack
+            const initialIntensity = crackMaterial.emissiveIntensity;
+            const flickerSpeed = 0.01 + Math.random() * 0.02;
+            
+            crack.userData.update = (time) => {
+                // Pulsing glow
+                crackMaterial.emissiveIntensity = initialIntensity * (0.7 + 0.5 * Math.sin(time * flickerSpeed));
+            };
+            
+            if (!this.animatedObjects) this.animatedObjects = [];
+            this.animatedObjects.push(crack);
+        }
+
+        // Add lava pools (circular areas of brighter lava)
+        for (let i = 0; i < 8; i++) {
+            const poolRadius = 2 + Math.random() * 3;
+            const poolGeometry = new THREE.CircleGeometry(poolRadius, 32);
+            const poolMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff3300,
+                side: THREE.DoubleSide
+            });
+            
+            const pool = new THREE.Mesh(poolGeometry, poolMaterial);
+            pool.rotation.x = -Math.PI / 2;
+            pool.position.set(
+                Math.random() * 40 - 20,
+                0.06, // Slightly above ground
+                Math.random() * 40 - 20
+            );
+            pool.userData = { isEnvironment: true };
+            this.scene.add(pool);
+        }
+
+        // Add dark stone walls
+        const wallHeight = 10; // Taller than regular walls
+        const wallThickness = 1.5;
+        const wallMaterial = new THREE.MeshStandardMaterial({
+            color: 0x111111, // Very dark
+            roughness: 0.9,
+            metalness: 0.1,
+            map: this.createStoneBrickTexture()
+        });
+
+        // North wall
+        const northWall = new THREE.Mesh(
+            new THREE.BoxGeometry(60, wallHeight, wallThickness),
+            wallMaterial
+        );
+        northWall.position.set(0, wallHeight/2, -30);
+        northWall.castShadow = true;
+        northWall.receiveShadow = true;
+        northWall.userData = { isEnvironment: true };
+        this.scene.add(northWall);
+
+        // South wall
+        const southWall = new THREE.Mesh(
+            new THREE.BoxGeometry(60, wallHeight, wallThickness),
+            wallMaterial
+        );
+        southWall.position.set(0, wallHeight/2, 30);
+        southWall.castShadow = true;
+        southWall.receiveShadow = true;
+        southWall.userData = { isEnvironment: true };
+        this.scene.add(southWall);
+
+        // East wall
+        const eastWall = new THREE.Mesh(
+            new THREE.BoxGeometry(wallThickness, wallHeight, 60),
+            wallMaterial
+        );
+        eastWall.position.set(30, wallHeight/2, 0);
+        eastWall.castShadow = true;
+        eastWall.receiveShadow = true;
+        eastWall.userData = { isEnvironment: true };
+        this.scene.add(eastWall);
+
+        // West wall
+        const westWall = new THREE.Mesh(
+            new THREE.BoxGeometry(wallThickness, wallHeight, 60),
+            wallMaterial
+        );
+        westWall.position.set(-30, wallHeight/2, 0);
+        westWall.castShadow = true;
+        westWall.receiveShadow = true;
+        westWall.userData = { isEnvironment: true };
+        this.scene.add(westWall);
+
+        // Add pillars in corners
+        const pillarGeometry = new THREE.CylinderGeometry(1.5, 2, 10, 8);
+        const pillarMaterial = new THREE.MeshStandardMaterial({
+            color: 0x222222,
+            roughness: 0.8,
+            metalness: 0.3,
+            map: this.createStoneBrickTexture()
+        });
+        
+        // Add pillars in corners
+        const corners = [
+            { x: -25, z: -25 },
+            { x: 25, z: -25 },
+            { x: -25, z: 25 },
+            { x: 25, z: 25 }
+        ];
+        
+        corners.forEach(corner => {
+            const pillar = new THREE.Mesh(pillarGeometry, pillarMaterial);
+            pillar.position.set(corner.x, 5, corner.z);
+            pillar.castShadow = true;
+            pillar.receiveShadow = true;
+            pillar.userData = { isEnvironment: true };
+            this.scene.add(pillar);
+            
+            // Add torch fire on top of pillar
+            this.addTorch(corner.x, 10, corner.z);
+        });
+        
+        // Add more pillars along walls
+        for (let i = 0; i < 4; i++) {
+            // North wall pillars
+            const northPillar = new THREE.Mesh(pillarGeometry, pillarMaterial);
+            northPillar.position.set(-15 + i * 10, 5, -28);
+            northPillar.castShadow = true;
+            northPillar.receiveShadow = true;
+            northPillar.userData = { isEnvironment: true };
+            this.scene.add(northPillar);
+            
+            // South wall pillars
+            const southPillar = new THREE.Mesh(pillarGeometry, pillarMaterial);
+            southPillar.position.set(-15 + i * 10, 5, 28);
+            southPillar.castShadow = true;
+            southPillar.receiveShadow = true;
+            southPillar.userData = { isEnvironment: true };
+            this.scene.add(southPillar);
+            
+            // Add torches to some pillars
+            if (i % 2 === 0) {
+                this.addTorch(-15 + i * 10, 8, -27);
+                this.addTorch(-15 + i * 10, 8, 27);
+            }
+        }
+
+        // Add skulls and bones props
+        for (let i = 0; i < 15; i++) {
+            this.addSkull(
+                Math.random() * 50 - 25,
+                0.1,
+                Math.random() * 50 - 25
+            );
+        }
+
+        // Add dramatic lighting
+        this.setupBossLighting();
+        
+        // Change sky to dark red
+        this.updateSkyForBossFight();
+    }
+
+    createStoneBrickTexture() {
+        // Create a simple procedural brick texture
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        
+        // Fill background
+        ctx.fillStyle = '#222222';
+        ctx.fillRect(0, 0, 256, 256);
+        
+        // Draw brick pattern
+        ctx.fillStyle = '#333333';
+        
+        // Draw horizontal lines
+        for (let y = 0; y < 256; y += 32) {
+            ctx.fillRect(0, y, 256, 2);
+        }
+        
+        // Draw vertical lines with offset for brick pattern
+        for (let x = 0; x < 256; x += 64) {
+            for (let y = 0; y < 256; y += 64) {
+                ctx.fillRect(x, y, 2, 30);
+                ctx.fillRect(x + 32, y + 32, 2, 30);
+            }
+        }
+        
+        // Add some noise/texture
+        for (let i = 0; i < 1000; i++) {
+            const x = Math.random() * 256;
+            const y = Math.random() * 256;
+            const size = 1 + Math.random() * 2;
+            
+            ctx.fillStyle = `rgba(0, 0, 0, ${Math.random() * 0.3})`;
+            ctx.fillRect(x, y, size, size);
+            
+            ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.1})`;
+            ctx.fillRect(x + 1, y + 1, size, size);
+        }
+        
+        // Create texture
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(2, 2);
+        
+        return texture;
+    }
+
+    addTorch(x, y, z) {
+        // Create torch base
+        const torchBaseGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.8, 8);
+        const torchBaseMaterial = new THREE.MeshStandardMaterial({
+            color: 0x5D4037, // Brown
+            roughness: 0.9
+        });
+        const torchBase = new THREE.Mesh(torchBaseGeometry, torchBaseMaterial);
+        torchBase.position.set(x, y, z);
+        torchBase.castShadow = true;
+        torchBase.userData = { isEnvironment: true };
+        this.scene.add(torchBase);
+        
+        // Create fire effect
+        const fireGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+        const fireMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff5500,
+            transparent: true,
+            opacity: 0.9
+        });
+        const fire = new THREE.Mesh(fireGeometry, fireMaterial);
+        fire.position.set(x, y + 0.7, z);
+        fire.userData = { isEnvironment: true };
+        this.scene.add(fire);
+        
+        // Add point light at fire location
+        const light = new THREE.PointLight(0xff5500, 2, 15);
+        light.position.set(x, y + 0.7, z);
+        light.castShadow = true;
+        light.shadow.mapSize.width = 512;
+        light.shadow.mapSize.height = 512;
+        light.userData = { isEnvironment: true };
+        this.scene.add(light);
+        
+        // Animate fire
+        if (!this.animatedObjects) this.animatedObjects = [];
+        
+        const initialScale = fire.scale.clone();
+        const initialIntensity = light.intensity;
+        
+        fire.userData.update = (time) => {
+            // Random flicker
+            const flicker = 0.8 + 0.4 * Math.random();
+            fire.scale.set(
+                initialScale.x * flicker,
+                initialScale.y * (flicker * 1.2),
+                initialScale.z * flicker
+            );
+            
+            // Color shifts slightly
+            const hue = 0.05 + 0.05 * Math.random(); // Slight variation in orange/red
+            fire.material.color.setHSL(hue, 1, 0.5);
+            
+            // Light intensity varies
+            light.intensity = initialIntensity * flicker;
+        };
+        
+        this.animatedObjects.push(fire);
+    }
+
+    addSkull(x, y, z) {
+        // Simple skull
+        const skullGroup = new THREE.Group();
+        
+        // Skull base (cranium)
+        const craniumGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+        craniumGeometry.scale(1, 0.8, 1.2); // Elongate slightly
+        
+        const skullMaterial = new THREE.MeshStandardMaterial({
+            color: 0xEEEEEE,
+            roughness: 0.9
+        });
+        
+        const cranium = new THREE.Mesh(craniumGeometry, skullMaterial);
+        skullGroup.add(cranium);
+        
+        // Jaw
+        const jawGeometry = new THREE.BoxGeometry(0.4, 0.2, 0.3);
+        const jaw = new THREE.Mesh(jawGeometry, skullMaterial);
+        jaw.position.set(0, -0.3, 0.2);
+        skullGroup.add(jaw);
+        
+        // Eye sockets
+        const socketGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+        const socketMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        
+        const leftEye = new THREE.Mesh(socketGeometry, socketMaterial);
+        leftEye.position.set(-0.15, 0, 0.3);
+        skullGroup.add(leftEye);
+        
+        const rightEye = new THREE.Mesh(socketGeometry, socketMaterial);
+        rightEye.position.set(0.15, 0, 0.3);
+        skullGroup.add(rightEye);
+        
+        // Random rotation
+        skullGroup.rotation.set(
+            Math.random() * Math.PI,
+            Math.random() * Math.PI,
+            Math.random() * Math.PI
+        );
+        
+        skullGroup.position.set(x, y, z);
+        skullGroup.userData = { isEnvironment: true };
+        this.scene.add(skullGroup);
+        
+        return skullGroup;
+    }
+
+    setupBossLighting() {
+        // Remove existing ambient light
+        this.scene.children.forEach(child => {
+            if (child instanceof THREE.AmbientLight || child instanceof THREE.DirectionalLight) {
+                this.scene.remove(child);
+            }
+        });
+        
+        // Add dim ambient light
+        const ambientLight = new THREE.AmbientLight(0x330000, 0.3); // Dark red ambient
+        this.scene.add(ambientLight);
+        
+        // Add dim directional light
+        const directionalLight = new THREE.DirectionalLight(0xff3300, 0.5);
+        directionalLight.position.set(5, 10, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        this.scene.add(directionalLight);
+        
+        // Add red fog
+        this.scene.fog = new THREE.FogExp2(0x330000, 0.01);
+    }
+
+    updateSkyForBossFight() {
+        // Find existing sky
+        let sky = null;
+        this.scene.children.forEach(child => {
+            if (child.userData && child.userData.isSky) {
+                sky = child;
+            }
+        });
+        
+        if (sky) {
+            this.scene.remove(sky);
+        }
+        
+        // Create dark red sky
+        const skyGeometry = new THREE.SphereGeometry(100, 32, 32);
+        const skyMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                topColor: { value: new THREE.Color(0x660000) }, // Dark red
+                bottomColor: { value: new THREE.Color(0x000000) }, // Black
+                offset: { value: 33 },
+                exponent: { value: 0.6 }
+            },
+            vertexShader: `
+                varying vec3 vWorldPosition;
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 topColor;
+                uniform vec3 bottomColor;
+                uniform float offset;
+                uniform float exponent;
+                varying vec3 vWorldPosition;
+                void main() {
+                    float h = normalize(vWorldPosition).y;
+                    gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                }
+            `,
+            side: THREE.BackSide
+        });
+        const newSky = new THREE.Mesh(skyGeometry, skyMaterial);
+        newSky.userData = { isEnvironment: true, isSky: true };
+        this.scene.add(newSky);
     }
 
     takeDamage(amount) {
@@ -1951,6 +2687,15 @@ class Game {
         if (this.controls.isLocked) {
             const time = performance.now();
             const delta = (time - this.prevTime) / 1000;
+
+            // Update animated objects
+            if (this.animatedObjects) {
+                this.animatedObjects.forEach(obj => {
+                    if (obj.userData && obj.userData.update) {
+                        obj.userData.update(time * 0.001);
+                    }
+                });
+            }
 
             // Reset velocity
             this.velocity.x = 0;
@@ -2029,6 +2774,426 @@ class Game {
             // Keep rendering even when controls are not locked
             this.renderer.render(this.scene, this.camera);
         }
+    }
+
+    // New boss attack methods
+    bossMeleeAttack() {
+        // Basic melee attack - more damaging than regular squirrels
+        const levelData = this.levelData[this.level];
+        this.takeDamage(levelData.bossAttackDamage);
+        this.soundManager.playSound('hit');
+        
+        // Visual indication of attack
+        this.createAttackVisual(this.boss.position.clone(), 0xff0000, 3);
+    }
+
+    bossPrepareRangedAttack() {
+        // Visual telegraph that ranged attack is coming
+        const bossPosition = this.boss.position.clone();
+        
+        // Create glowing effect around boss
+        const glowGeometry = new THREE.SphereGeometry(3, 32, 32);
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6600,
+            transparent: true,
+            opacity: 0.3
+        });
+        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+        glow.position.copy(bossPosition);
+        this.scene.add(glow);
+        
+        // Animate glow
+        const glowInterval = setInterval(() => {
+            glow.scale.x += 0.05;
+            glow.scale.y += 0.05;
+            glow.scale.z += 0.05;
+            glow.material.opacity -= 0.01;
+            
+            if (glow.material.opacity <= 0) {
+                clearInterval(glowInterval);
+                this.scene.remove(glow);
+            }
+        }, 50);
+    }
+
+    updateBossRangedAttack() {
+        // Perform ranged attack
+        if (performance.now() - this.boss.userData.stateChangeTime > 1500) { // Delay before firing
+            // Fire 3 projectiles in burst
+            for (let i = 0; i < 3; i++) {
+                setTimeout(() => {
+                    if (this.boss) { // Make sure boss still exists
+                        this.bossFireRangedAttack();
+                    }
+                }, i * 300); // Fire with slight delay between each
+            }
+            
+            // Reset to chase state
+            this.boss.userData.currentState = 'chase';
+            this.boss.userData.stateChangeTime = performance.now();
+        }
+    }
+
+    bossFireRangedAttack() {
+        // Create acorn/nut projectile
+        const projectileGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+        const projectileMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x996633,
+            roughness: 0.3,
+            metalness: 0.2
+        });
+        const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+        
+        // Position at boss
+        projectile.position.copy(this.boss.position);
+        projectile.position.y += 2; // Adjust to fire from higher position
+        
+        // Create direction toward player with slight randomness
+        const direction = new THREE.Vector3();
+        direction.subVectors(this.camera.position, projectile.position).normalize();
+        
+        // Add slight randomness to direction
+        direction.x += (Math.random() - 0.5) * 0.1;
+        direction.y += (Math.random() - 0.5) * 0.1;
+        direction.z += (Math.random() - 0.5) * 0.1;
+        direction.normalize();
+        
+        // Set velocity
+        projectile.userData = {
+            isEnemyProjectile: true,
+            velocity: direction.multiplyScalar(0.5), // Speed of projectile
+            damage: this.levelData[this.level].bossAttackDamage * 0.7, // Slightly less than melee
+            lifetime: 0
+        };
+        
+        this.scene.add(projectile);
+        
+        // Add to the nuts array to reuse existing collision logic
+        this.nuts.push(projectile);
+        
+        // Play sound
+        this.soundManager.playSound('launch');
+        
+        // Add launch visual effect
+        this.createAttackVisual(projectile.position.clone(), 0xffcc00, 1.5);
+    }
+
+    bossStartLeapAttack() {
+        const bossData = this.boss.userData;
+        
+        // Store the starting position for the leap
+        bossData.leapStartPosition.copy(this.boss.position);
+        
+        // Set leap parameters
+        bossData.inLeapAttack = true;
+        bossData.leapTarget.copy(this.camera.position);
+        bossData.leapProgress = 0;
+        bossData.leapHeight = 15; // Maximum height of leap
+        
+        // Visual telegraph
+        const telegraph = new THREE.RingGeometry(5, 5.2, 32);
+        const telegraphMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.5
+        });
+        const ring = new THREE.Mesh(telegraph, telegraphMaterial);
+        ring.position.copy(this.camera.position);
+        ring.position.y = 0.1;
+        ring.rotation.x = Math.PI / 2;
+        ring.userData = { isLeapTarget: true };
+        this.scene.add(ring);
+        
+        // Animate telegraph ring
+        const animateRing = () => {
+            if (!this.boss || !this.boss.userData.inLeapAttack) {
+                this.scene.remove(ring);
+                return;
+            }
+            
+            ring.scale.x += 0.03;
+            ring.scale.y += 0.03;
+            ring.scale.z += 0.03;
+            
+            requestAnimationFrame(animateRing);
+        };
+        
+        animateRing();
+        
+        // Play warning sound
+        this.soundManager.playSound('death'); // Reusing death sound for now
+    }
+
+    updateBossLeapAttack() {
+        const bossData = this.boss.userData;
+        
+        // Progress the leap animation
+        bossData.leapProgress += 0.01; // Reduced from 0.02 to 0.01 to make the jump slower
+        
+        if (bossData.leapProgress >= 1) {
+            // End of leap - land and cause damage in area
+            bossData.inLeapAttack = false;
+            bossData.currentState = 'chase';
+            
+            // Fix position to ground level after landing
+            this.boss.position.y = 0.225 * 5;
+            
+            // Create landing impact
+            const explosion = this.createExplosion(this.boss.position.clone(), 7);
+            if (explosion) {
+                explosion.userData.fromBoss = true; // Mark this explosion as coming from the boss
+            }
+            
+            // Damage player if close to landing spot
+            const distanceToPlayer = this.boss.position.distanceTo(this.camera.position);
+            if (distanceToPlayer < 7) {
+                this.takeDamage(this.levelData[this.level].bossAttackDamage * 1.5);
+                
+                // Apply knockback to player
+                const knockbackDir = new THREE.Vector3()
+                    .subVectors(this.camera.position, this.boss.position)
+                    .normalize()
+                    .multiplyScalar(10);
+                
+                // Move player position
+                this.camera.position.add(knockbackDir);
+            }
+            
+            // Remove target indicators
+            this.scene.children.forEach(child => {
+                if (child.userData && child.userData.isLeapTarget) {
+                    this.scene.remove(child);
+                }
+            });
+            
+            return;
+        }
+        
+        // Calculate arc of jump using the actual starting position and target position
+        const t = bossData.leapProgress;
+        
+        // Horizontal interpolation (linear)
+        this.boss.position.x = (1 - t) * bossData.leapStartPosition.x + t * bossData.leapTarget.x;
+        this.boss.position.z = (1 - t) * bossData.leapStartPosition.z + t * bossData.leapTarget.z;
+        
+        // Vertical position (parabolic)
+        const baseHeight = 0.225 * 5; // Base ground-level height for boss
+        const heightFactor = 4 * t * (1 - t); // Parabolic curve peaking at t=0.5
+        this.boss.position.y = baseHeight + bossData.leapHeight * heightFactor;
+        
+        // Rotate boss to face forward in jump direction
+        const direction = new THREE.Vector3()
+            .subVectors(bossData.leapTarget, bossData.leapStartPosition)
+            .normalize();
+        this.boss.rotation.y = Math.atan2(direction.x, direction.z);
+        
+        // Add particle trail effect
+        if (Math.random() > 0.5) {
+            const trailGeometry = new THREE.SphereGeometry(0.3, 8, 8);
+            const trailMaterial = new THREE.MeshBasicMaterial({
+                color: 0x8B0000,
+                transparent: true,
+                opacity: 0.7
+            });
+            const trailParticle = new THREE.Mesh(trailGeometry, trailMaterial);
+            trailParticle.position.copy(this.boss.position);
+            trailParticle.userData = { 
+                isEffect: true,
+                lifetime: 1
+            };
+            this.scene.add(trailParticle);
+            
+            // Fade out trail
+            const fadeInterval = setInterval(() => {
+                trailParticle.material.opacity -= 0.05;
+                trailParticle.scale.multiplyScalar(0.95);
+                
+                if (trailParticle.material.opacity <= 0) {
+                    clearInterval(fadeInterval);
+                    this.scene.remove(trailParticle);
+                }
+            }, 50);
+        }
+    }
+
+    bossAreaAttack() {
+        // Telegraph the area attack
+        const attackRadius = 8; // Range of the attack
+        
+        // Create a growing ring to telegraph the attack
+        const ringGeometry = new THREE.RingGeometry(0.1, 0.4, 32);
+        const ringMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.7
+        });
+        const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+        ring.position.copy(this.boss.position);
+        ring.position.y = 0.1;
+        ring.rotation.x = Math.PI / 2;
+        this.scene.add(ring);
+        
+        // Flash the boss red
+        this.boss.children.forEach(child => {
+            if (child.material && child.material.color) {
+                child.material.emissiveIntensity = 1.0;
+            }
+        });
+        
+        // Show charging animation
+        let scale = 1;
+        const chargeInterval = setInterval(() => {
+            scale += 0.2;
+            ring.scale.set(scale, scale, scale);
+            
+            // Pulse boss size slightly
+            this.boss.scale.x = 5 + Math.sin(scale * 0.5) * 0.2;
+            this.boss.scale.y = 5 + Math.sin(scale * 0.5) * 0.2;
+            this.boss.scale.z = 5 + Math.sin(scale * 0.5) * 0.2;
+            
+            if (scale >= attackRadius * 2) {
+                clearInterval(chargeInterval);
+                this.scene.remove(ring);
+                
+                // Reset boss appearance
+                this.boss.scale.set(5, 5, 5);
+                this.boss.children.forEach(child => {
+                    if (child.material && child.material.emissiveIntensity) {
+                        child.material.emissiveIntensity = 0.5;
+                    }
+                });
+                
+                // Perform actual attack
+                const distanceToPlayer = this.boss.position.distanceTo(this.camera.position);
+                if (distanceToPlayer < attackRadius) {
+                    this.takeDamage(this.levelData[this.level].bossAttackDamage * 1.2);
+                    
+                    // Apply screen shake effect
+                    this.applyScreenShake(0.5, 500);
+                }
+                
+                // Visual explosion effect
+                const explosion = this.createExplosion(this.boss.position.clone(), attackRadius);
+                if (explosion) {
+                    explosion.userData.fromBoss = true; // Mark this explosion as coming from the boss
+                }
+                this.soundManager.playSound('death');
+            }
+        }, 50);
+    }
+
+    updateBossChase() {
+        const bossData = this.boss.userData;
+        const time = performance.now();
+        
+        // Change direction occasionally
+        if (time - bossData.lastDirectionChange > bossData.directionChangeInterval) {
+            const randomOffset = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.5,
+                0,
+                (Math.random() - 0.5) * 0.5
+            );
+            bossData.direction.copy(this.camera.position)
+                .sub(this.boss.position)
+                .normalize()
+                .add(randomOffset)
+                .normalize();
+            
+            bossData.lastDirectionChange = time;
+        }
+
+        // Move boss
+        const newX = this.boss.position.x + bossData.direction.x * bossData.speed;
+        const newZ = this.boss.position.z + bossData.direction.z * bossData.speed;
+        
+        // Keep boss within walls
+        const bossRadius = 5;
+        const mapBounds = 25;
+        this.boss.position.x = Math.max(-mapBounds, Math.min(mapBounds, newX));
+        this.boss.position.z = Math.max(-mapBounds, Math.min(mapBounds, newZ));
+        
+        // Fix boss Y position to ground level (accounting for scale)
+        this.boss.position.y = 0.225 * 5; // 0.225 is the base squirrel height, multiplied by boss scale (5)
+        
+        // Rotate boss to face movement direction
+        this.boss.rotation.y = Math.atan2(bossData.direction.x, bossData.direction.z);
+    }
+
+    createAttackVisual(position, color, size) {
+        const flashGeometry = new THREE.SphereGeometry(size, 16, 16);
+        const flashMaterial = new THREE.MeshBasicMaterial({
+            color: color,
+            transparent: true,
+            opacity: 0.7
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        flash.position.copy(position);
+        flash.userData = { isEffect: true }; // Mark as visual effect
+        this.scene.add(flash);
+        
+        // Fade out quickly
+        const fadeInterval = setInterval(() => {
+            flash.material.opacity -= 0.1;
+            flash.scale.multiplyScalar(1.1);
+            
+            if (flash.material.opacity <= 0) {
+                clearInterval(fadeInterval);
+                this.scene.remove(flash);
+            }
+        }, 50);
+    }
+
+    applyScreenShake(intensity, duration) {
+        const originalPosition = this.camera.position.clone();
+        let elapsed = 0;
+        const interval = 20; // ms between shake updates
+        
+        const shake = () => {
+            const offsetX = (Math.random() - 0.5) * intensity;
+            const offsetY = (Math.random() - 0.5) * intensity;
+            const offsetZ = (Math.random() - 0.5) * intensity;
+            
+            this.camera.position.set(
+                originalPosition.x + offsetX,
+                originalPosition.y + offsetY,
+                originalPosition.z + offsetZ
+            );
+            
+            elapsed += interval;
+            
+            if (elapsed < duration) {
+                setTimeout(shake, interval);
+            } else {
+                // Reset to original position
+                this.camera.position.copy(originalPosition);
+            }
+        };
+        
+        shake();
+    }
+
+    forceDeepCleanup() {
+        // Create an entirely new, clean scene to replace the current one
+        const newScene = new THREE.Scene();
+        
+        // Keep only essentials: camera, player, UI elements
+        // Transfer essential non-environment objects to the new scene
+        this.scene.children.forEach(child => {
+            // Keep only: camera, directional lights, ambient lights, and fog
+            if (child === this.camera ||
+                child instanceof THREE.DirectionalLight ||
+                child instanceof THREE.AmbientLight) {
+                newScene.add(child.clone());
+            }
+        });
+        
+        // Replace old scene with new clean scene
+        this.scene = newScene;
+        
+        // Recreate the player controls to point to the new scene
+        this.controls = new PointerLockControls(this.camera, document.body);
     }
 }
 
