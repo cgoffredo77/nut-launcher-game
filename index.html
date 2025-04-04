@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nut Launcher Game</title>
-    <link rel="stylesheet" href="style.css">
+    <!-- Version control - increment this after significant changes -->
+    <meta name="game-version" content="1.1.0">
     <!-- Force cache refresh -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <!-- Add random query parameter to CSS -->
+    <link rel="stylesheet" href="style.css?v=1.1.0">
     <!-- Add a console logging style to debug loading issues -->
     <style>
         #loading-status {
@@ -34,12 +37,69 @@
             max-width: 80%;
             display: none;
         }
+        #refresh-game {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 1000;
+            display: none;
+        }
+        #debug-tools {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            color: white;
+            font-size: 10px;
+            opacity: 0.7;
+            cursor: pointer;
+            z-index: 1000;
+        }
+        #debug-panel {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            z-index: 1001;
+            display: none;
+            font-size: 12px;
+            width: 250px;
+        }
+        #debug-panel button {
+            margin: 5px;
+            padding: 5px;
+            background-color: #555;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <div id="loading-status">Loading game resources...</div>
     <div id="error-message"></div>
+    <button id="refresh-game">Refresh Game</button>
     <div id="game-container"></div>
+    
+    <!-- Debug tools (hidden by default, shown with Ctrl+Shift+D) -->
+    <div id="debug-tools">⚙️</div>
+    <div id="debug-panel">
+        <h4>Debug Tools</h4>
+        <div>Version: <span id="version-info">1.1.0</span></div>
+        <div>Cached Version: <span id="cached-version-info">-</span></div>
+        <button id="clear-cache">Clear Cache & Reload</button>
+        <button id="reset-game">Reset Game Data</button>
+        <button id="close-debug">Close</button>
+    </div>
     
     <script type="importmap">
         {
@@ -50,19 +110,75 @@
         }
     </script>
     
+    <!-- Cache and version management -->
+    <script>
+        // Version stored in localStorage
+        const CURRENT_VERSION = "1.1.0";
+        const LOCAL_VERSION = localStorage.getItem('nut-launcher-version');
+        
+        // Clear cache if version has changed
+        if (LOCAL_VERSION !== CURRENT_VERSION) {
+            console.log(`Version change detected: ${LOCAL_VERSION} → ${CURRENT_VERSION}`);
+            
+            // Clear all application cache
+            if ('caches' in window) {
+                caches.keys().then(cacheNames => {
+                    return Promise.all(
+                        cacheNames.map(cacheName => {
+                            return caches.delete(cacheName);
+                        })
+                    );
+                }).then(() => {
+                    console.log('All caches cleared');
+                });
+            }
+            
+            // Update local storage version
+            localStorage.setItem('nut-launcher-version', CURRENT_VERSION);
+            
+            // Force reload if this isn't the first visit
+            if (LOCAL_VERSION) {
+                console.log('Forcing page reload due to version change');
+                window.location.reload(true);
+            }
+        }
+        
+        // Refresh button handler
+        document.getElementById('refresh-game').addEventListener('click', function() {
+            console.log('Manual refresh requested');
+            localStorage.removeItem('nut-launcher-version');
+            window.location.reload(true);
+        });
+        
+        // Register service worker for cache management
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js?v=' + CURRENT_VERSION)
+                    .then(registration => {
+                        console.log('ServiceWorker registered:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+    </script>
+    
     <!-- Error handling script -->
     <script>
         window.addEventListener('error', function(event) {
             console.error('Error occurred:', event.error);
             document.getElementById('error-message').style.display = 'block';
-            document.getElementById('error-message').innerText = 'Error loading game: ' + event.error.message;
+            document.getElementById('error-message').innerText = 'Error loading game: ' + event.error.message + '\n\nTry refreshing the page or clearing your browser cache.';
+            document.getElementById('refresh-game').style.display = 'block';
         });
         
         // Check if the game loads within 10 seconds
         setTimeout(function() {
             const loadingStatus = document.getElementById('loading-status');
-            if (loadingStatus && loadingStatus.parentNode) {
+            if (loadingStatus && loadingStatus.parentNode && loadingStatus.style.display !== 'none') {
                 loadingStatus.innerText = 'Game loading took too long. Try refreshing the page.';
+                document.getElementById('refresh-game').style.display = 'block';
             }
         }, 10000);
     </script>
@@ -72,8 +188,9 @@
         // Log loading progress
         console.log('Starting to load Three.js module');
         
-        // Add cache-busting timestamp
+        // Add cache-busting timestamp and version
         const timestamp = new Date().getTime();
+        const version = "1.1.0"; // Keep this in sync with the meta tag
         
         // Import Three.js dynamically with a timeout
         const loadGame = async () => {
@@ -83,7 +200,7 @@
                 
                 // If Three.js loads, proceed to load the game with cache-busting parameter
                 console.log('Loading game module');
-                await import(`./game.js?v=${timestamp}`);
+                await import(`./game.js?v=${version}_${timestamp}`);
                 console.log('Game module loaded');
                 
                 // Hide loading message when game starts
@@ -91,11 +208,71 @@
             } catch (error) {
                 console.error('Failed to load module:', error);
                 document.getElementById('error-message').style.display = 'block';
-                document.getElementById('error-message').innerText = 'Failed to load game: ' + error.message;
+                document.getElementById('error-message').innerText = 'Failed to load game: ' + error.message + '\n\nTry refreshing the page or clearing your browser cache.';
+                document.getElementById('refresh-game').style.display = 'block';
             }
         };
         
         loadGame();
+    </script>
+    
+    <!-- Debug tools script -->
+    <script>
+        // Debug panel functionality
+        document.getElementById('debug-tools').addEventListener('click', function() {
+            document.getElementById('debug-panel').style.display = 'block';
+            document.getElementById('cached-version-info').textContent = localStorage.getItem('nut-launcher-version') || 'Not set';
+        });
+        
+        document.getElementById('close-debug').addEventListener('click', function() {
+            document.getElementById('debug-panel').style.display = 'none';
+        });
+        
+        // Clear cache button
+        document.getElementById('clear-cache').addEventListener('click', function() {
+            // Clear application cache
+            if ('caches' in window) {
+                caches.keys().then(function(names) {
+                    for (let name of names)
+                        caches.delete(name);
+                });
+            }
+            
+            // Clear localStorage
+            localStorage.removeItem('nut-launcher-version');
+            
+            // Notify service worker to clear caches
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    action: 'clearCache'
+                });
+            }
+            
+            // Force clear browser cache and reload
+            alert('Cache cleared. The page will now reload.');
+            window.location.reload(true);
+        });
+        
+        // Reset game data
+        document.getElementById('reset-game').addEventListener('click', function() {
+            if (confirm('This will reset all game data. Continue?')) {
+                // Clear all localStorage data
+                localStorage.clear();
+                
+                // Force reload
+                alert('Game data reset. The page will now reload.');
+                window.location.reload(true);
+            }
+        });
+        
+        // Keyboard shortcut to show debug panel (Ctrl+Shift+D)
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                document.getElementById('debug-panel').style.display = 
+                    document.getElementById('debug-panel').style.display === 'none' ? 'block' : 'none';
+                document.getElementById('cached-version-info').textContent = localStorage.getItem('nut-launcher-version') || 'Not set';
+            }
+        });
     </script>
 </body>
 </html> 
