@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
+// Game Version 1.1.0 - Latest update with boss fight enhancements
+
 class SoundManager {
     constructor() {
         this.sounds = {};
