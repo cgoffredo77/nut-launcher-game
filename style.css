@@ -1,0 +1,32 @@
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #000;
+}
+
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
+#score, #ammo {
+    position: absolute;
+    color: white;
+    font-family: Arial, sans-serif;
+    font-size: 24px;
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 5px;
+}
+
+#score {
+    top: 20px;
+    left: 20px;
+}
+
+#ammo {
+    top: 20px;
+    right: 20px;
+} 

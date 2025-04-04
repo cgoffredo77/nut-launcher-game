@@ -1,0 +1,15 @@
+{
+  "name": "nut-launcher-game",
+  "version": "1.0.0",
+  "description": "A Three.js game where you launch nuts at squirrels",
+  "main": "game.js",
+  "scripts": {
+    "start": "http-server -c-1"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+} 
