@@ -5,9 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nut Launcher Game</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Add a console logging style to debug loading issues -->
+    <style>
+        #loading-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+        #error-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            background-color: rgba(255, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            max-width: 80%;
+            display: none;
+        }
+    </style>
 </head>
 <body>
+    <div id="loading-status">Loading game resources...</div>
+    <div id="error-message"></div>
     <div id="game-container"></div>
+    
     <script type="importmap">
         {
             "imports": {
@@ -16,6 +45,50 @@
             }
         }
     </script>
-    <script type="module" src="game.js"></script>
+    
+    <!-- Error handling script -->
+    <script>
+        window.addEventListener('error', function(event) {
+            console.error('Error occurred:', event.error);
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-message').innerText = 'Error loading game: ' + event.error.message;
+        });
+        
+        // Check if the game loads within 10 seconds
+        setTimeout(function() {
+            const loadingStatus = document.getElementById('loading-status');
+            if (loadingStatus && loadingStatus.parentNode) {
+                loadingStatus.innerText = 'Game loading took too long. Try refreshing the page.';
+            }
+        }, 10000);
+    </script>
+    
+    <!-- Load Three.js from CDN with fallback -->
+    <script type="module">
+        // Log loading progress
+        console.log('Starting to load Three.js module');
+        
+        // Import Three.js dynamically with a timeout
+        const loadGame = async () => {
+            try {
+                const THREE = await import('three');
+                console.log('Three.js loaded successfully', THREE.REVISION);
+                
+                // If Three.js loads, proceed to load the game
+                console.log('Loading game module');
+                await import('./game.js');
+                console.log('Game module loaded');
+                
+                // Hide loading message when game starts
+                document.getElementById('loading-status').style.display = 'none';
+            } catch (error) {
+                console.error('Failed to load module:', error);
+                document.getElementById('error-message').style.display = 'block';
+                document.getElementById('error-message').innerText = 'Failed to load game: ' + error.message;
+            }
+        };
+        
+        loadGame();
+    </script>
 </body>
 </html> 
