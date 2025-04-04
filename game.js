@@ -52,6 +52,18 @@ class SoundManager {
 
 class Game {
     constructor() {
+        // Initialize basic properties
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.controls = null;
+        this.isInitialized = false;
+    }
+
+    init() {
+        if (this.isInitialized) return;
+        this.isInitialized = true;
+
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         
@@ -164,6 +176,10 @@ class Game {
         this.createSquirrels();
         this.createUI();
         this.animate();
+
+        // Hide loading status and title screen
+        document.getElementById('loading-status').style.display = 'none';
+        document.getElementById('title-screen').style.display = 'none';
     }
 
     createCrosshair() {
@@ -265,6 +281,8 @@ class Game {
 
     setupControls() {
         document.addEventListener('click', () => {
+            if (this.isGameOver) return; // Prevent actions if game is over
+
             if (!this.controls.isLocked) {
                 this.controls.lock();
             } else {
@@ -278,6 +296,8 @@ class Game {
                 window.location.reload();
                 return;
             }
+
+            if (this.isGameOver) return; // Prevent movement if game is over
 
             switch (event.code) {
                 case 'ArrowUp':
@@ -310,6 +330,8 @@ class Game {
         });
 
         document.addEventListener('keyup', (event) => {
+            if (this.isGameOver) return; // Prevent actions if game is over
+
             switch (event.code) {
                 case 'ArrowUp':
                 case 'KeyW':
@@ -2659,6 +2681,26 @@ class Game {
         this.isGameOver = true;
         this.controls.unlock();
         this.updateUI();
+
+        // Stop player movement and actions
+        this.moveForward = false;
+        this.moveBackward = false;
+        this.moveLeft = false;
+        this.moveRight = false;
+        this.isSprinting = false;
+        this.isRapidFiring = false;
+        clearInterval(this.rapidFireInterval);
+        this.rapidFireInterval = null;
+
+        // Remove all enemies
+        this.squirrels.forEach(squirrel => this.scene.remove(squirrel));
+        this.squirrels = [];
+
+        // Remove boss if present
+        if (this.boss) {
+            this.scene.remove(this.boss);
+            this.boss = null;
+        }
     }
 
     updateStamina(delta) {
@@ -3199,5 +3241,10 @@ class Game {
     }
 }
 
-// Start the game
-const game = new Game(); 
+// Initialize game but don't start it
+const game = new Game();
+
+// Add event listener for the play button
+document.getElementById('play-button').addEventListener('click', () => {
+    game.init();
+}); 

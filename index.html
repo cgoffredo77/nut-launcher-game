@@ -82,9 +82,100 @@
             border-radius: 3px;
             cursor: pointer;
         }
+        #title-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            background-color: #3a5f0b; /* Base ground color */
+            overflow: hidden;
+        }
+
+        /* Sky gradient */
+        #title-screen::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 60%;
+            background: linear-gradient(to bottom, #87CEEB, #B0E2FF);
+            z-index: -1;
+        }
+
+        /* Decorative trees */
+        .tree {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-left: 40px solid transparent;
+            border-right: 40px solid transparent;
+            border-bottom: 80px solid #228B22;
+        }
+
+        .tree::after {
+            content: '';
+            position: absolute;
+            bottom: -90px;
+            left: -10px;
+            width: 20px;
+            height: 30px;
+            background: #8B4513;
+        }
+
+        /* Position trees */
+        #tree1 { left: 10%; bottom: 30%; transform: scale(1.2); }
+        #tree2 { left: 25%; bottom: 35%; transform: scale(0.8); }
+        #tree3 { right: 15%; bottom: 32%; transform: scale(1.5); }
+        #tree4 { right: 30%; bottom: 28%; transform: scale(0.9); }
+
+        #title-screen h1 {
+            color: white;
+            font-size: 5em;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.6);
+            margin-bottom: 30px;
+            font-family: 'Arial', sans-serif;
+            z-index: 1;
+            letter-spacing: 2px;
+        }
+
+        #play-button {
+            padding: 20px 50px;
+            font-size: 1.8em;
+            background-color: #8B4513;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            font-family: 'Arial', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            z-index: 1;
+        }
+
+        #play-button:hover {
+            transform: scale(1.1);
+            background-color: #A0522D;
+        }
     </style>
 </head>
 <body>
+    <div id="title-screen">
+        <div class="tree" id="tree1"></div>
+        <div class="tree" id="tree2"></div>
+        <div class="tree" id="tree3"></div>
+        <div class="tree" id="tree4"></div>
+        <h1>Nut Launcher</h1>
+        <button id="play-button">Play Game</button>
+    </div>
     <div id="loading-status">Loading game resources...</div>
     <div id="error-message"></div>
     <button id="refresh-game">Refresh Game</button>
