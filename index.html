@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nut Launcher Game</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Force cache refresh -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <!-- Add a console logging style to debug loading issues -->
     <style>
         #loading-status {
@@ -68,15 +72,18 @@
         // Log loading progress
         console.log('Starting to load Three.js module');
         
+        // Add cache-busting timestamp
+        const timestamp = new Date().getTime();
+        
         // Import Three.js dynamically with a timeout
         const loadGame = async () => {
             try {
                 const THREE = await import('three');
                 console.log('Three.js loaded successfully', THREE.REVISION);
                 
-                // If Three.js loads, proceed to load the game
+                // If Three.js loads, proceed to load the game with cache-busting parameter
                 console.log('Loading game module');
-                await import('./game.js');
+                await import(`./game.js?v=${timestamp}`);
                 console.log('Game module loaded');
                 
                 // Hide loading message when game starts
