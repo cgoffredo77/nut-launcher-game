@@ -165,6 +165,125 @@
             transform: scale(1.1);
             background-color: #A0522D;
         }
+
+        /* Upgrade Screen Styles */
+        #upgrade-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1500;
+            color: white;
+            font-family: 'Arial', sans-serif;
+        }
+
+        #upgrade-screen h2 {
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            color: #4CAF50;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .upgrade-points {
+            font-size: 1.5em;
+            margin-bottom: 30px;
+            color: #FFD700;
+        }
+
+        .upgrade-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            max-width: 800px;
+            padding: 20px;
+        }
+
+        .upgrade-item {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+
+        .upgrade-item:hover {
+            transform: scale(1.05);
+            background-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .upgrade-item h3 {
+            margin: 0 0 10px 0;
+            color: #4CAF50;
+        }
+
+        .upgrade-item p {
+            margin: 0 0 15px 0;
+            font-size: 0.9em;
+            color: #BBB;
+        }
+
+        .upgrade-level {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .level-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #333;
+            margin: 0 3px;
+        }
+
+        .level-dot.filled {
+            background-color: #4CAF50;
+        }
+
+        .upgrade-button {
+            padding: 8px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .upgrade-button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+
+        .upgrade-button:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+
+        .continue-button {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-size: 1.2em;
+            background-color: #FFD700;
+            color: black;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        .continue-button:hover {
+            transform: scale(1.1);
+            background-color: #FFC000;
+        }
     </style>
 </head>
 <body>
@@ -176,6 +295,64 @@
         <h1>Nut Launcher</h1>
         <button id="play-button">Play Game</button>
     </div>
+
+    <!-- Upgrade Screen -->
+    <div id="upgrade-screen">
+        <h2>Upgrades</h2>
+        <div class="upgrade-points">Points Available: <span id="points-available">0</span></div>
+        <div class="upgrade-container">
+            <div class="upgrade-item">
+                <h3>Health Capacity</h3>
+                <p>Increase your maximum health</p>
+                <div class="upgrade-level">
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                </div>
+                <button class="upgrade-button" data-upgrade="health">Upgrade (1 Point)</button>
+            </div>
+            <div class="upgrade-item">
+                <h3>Damage</h3>
+                <p>Increase damage dealt by nuts</p>
+                <div class="upgrade-level">
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                </div>
+                <button class="upgrade-button" data-upgrade="damage">Upgrade (1 Point)</button>
+            </div>
+            <div class="upgrade-item">
+                <h3>Fire Rate</h3>
+                <p>Decrease time between shots</p>
+                <div class="upgrade-level">
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                </div>
+                <button class="upgrade-button" data-upgrade="fireRate">Upgrade (1 Point)</button>
+            </div>
+            <div class="upgrade-item">
+                <h3>Movement Speed</h3>
+                <p>Increase movement speed</p>
+                <div class="upgrade-level">
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                    <div class="level-dot"></div>
+                </div>
+                <button class="upgrade-button" data-upgrade="speed">Upgrade (1 Point)</button>
+            </div>
+        </div>
+        <button class="continue-button">Continue to Next Level</button>
+    </div>
+
     <div id="loading-status">Loading game resources...</div>
     <div id="error-message"></div>
     <button id="refresh-game">Refresh Game</button>
