@@ -749,7 +749,7 @@ class Game {
 
         // Set boss position - fix floating by setting Y to proper ground level
         boss.position.set(0, 0.225 * 5, -25); // Scale Y position by boss scale (5) to match ground
-
+        
         // Add boss properties
         const levelData = this.levelData[this.level];
         boss.userData = {
@@ -1420,21 +1420,21 @@ class Game {
                 }
             } else {
                 // Normal player projectile update logic
-                nut.position.add(nut.velocity);
-                nut.velocity.y -= 0.1;
+            nut.position.add(nut.velocity);
+            nut.velocity.y -= 0.1;
 
-                // Update trail
-                nut.trailPoints.push(nut.position.clone());
-                if (nut.trailPoints.length > 20) {
-                    nut.trailPoints.shift();
-                }
-                const positions = new Float32Array(nut.trailPoints.length * 3);
-                nut.trailPoints.forEach((point, index) => {
-                    positions[index * 3] = point.x;
-                    positions[index * 3 + 1] = point.y;
-                    positions[index * 3 + 2] = point.z;
-                });
-                nut.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            // Update trail
+            nut.trailPoints.push(nut.position.clone());
+            if (nut.trailPoints.length > 20) {
+                nut.trailPoints.shift();
+            }
+            const positions = new Float32Array(nut.trailPoints.length * 3);
+            nut.trailPoints.forEach((point, index) => {
+                positions[index * 3] = point.x;
+                positions[index * 3 + 1] = point.y;
+                positions[index * 3 + 2] = point.z;
+            });
+            nut.trail.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             }
 
             // Check for collisions
@@ -1684,7 +1684,7 @@ class Game {
                         else if (distanceToPlayer < 5 && 
                                  time - bossData.lastAttackTime > bossData.attackCooldowns.melee) {
                             this.bossMeleeAttack();
-                            bossData.lastAttackTime = time;
+                    bossData.lastAttackTime = time;
                         }
                     }
                 }
@@ -3242,7 +3242,7 @@ class Game {
 }
 
 // Initialize game but don't start it
-const game = new Game();
+const game = new Game(); 
 
 // Add event listener for the play button
 document.getElementById('play-button').addEventListener('click', () => {
